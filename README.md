@@ -21,6 +21,6 @@ Note that these scripts will run only on machines with graphics cards that suppo
 
 * Earth elevation data from earthobservatory.nasa.gov
 
-* The KML raw data for James Cook's is taken from "Digital Archives and Pacific Cultures" (pacific.obdurodon.org)
+* The KML raw data for James Cook's travels are taken from "Digital Archives and Pacific Cultures" (pacific.obdurodon.org)
 
 * The orbital controls and some other three.js convenience functions are (minor modifications aside) taken from the three.js website.
