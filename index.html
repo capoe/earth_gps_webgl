@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <title>GPS Secret Globe</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+    <!-- scripts :: external -->
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.9.1/jquery.min.js"></script>
+    <!-- scripts :: local -->
+    <script src="js/three.js"></script>
+    <script src="js/Detector.js"></script>
+    <script src="js/controls/OrbitControls.js"></script>
+    <script src="js/libs/stats.min.js"></script>
+    <script src="js/libs/dat.gui.min.js"></script>
+    <script src="js/libs-local/util.js"></script>
+    <!-- style sheets -->
+    <link rel="stylesheet" type="text/css" href="css/main.css">
+</head>
+
+<body>
+    <div id="container"></div>
+    <div id="info">
+        <div id="timediv" style="visibility:hidden;"></div>
+    </div>
+</body>
+
+<script>
+
+var container = document.getElementById('container');
+var timediv = document.getElementById('timediv');			
+
+if (!Detector.webgl) Detector.addGetWebGLMessage();
+
+var renderer;
+var clock;
+var camera;
+var controls;
+var raycaster;
+var mouse;
+var selected = null;
+var lens;
+var scene;
+var scene_atm;
+var loader;
+var stats;
+var meshdict = {};
+
+init();
+animate();
+
+function init() {
+
+
+    // CLOCK
+    clock = new THREE.Clock();
+
+    // RENDERER
+    renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.autoClear = false;
+    renderer.setClearColor(0x000000, 0.0);
+    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.setSize(container.offsetWidth, container.offsetHeight);
+
+    // CAMERA
+    camera = new THREE.PerspectiveCamera( 50, container.offsetWidth / container.offsetHeight, 0.00001, 1000 );
+    camera.position.x = -4;
+    camera.position.z = 4;
+    camera.position.y = 2;
+
+    // RAYCASTER
+    raycaster = new THREE.Raycaster();
+    mouse = new THREE.Vector2();
+
+    // CONTROLS (OPERATES ON CAMERA + RENDERER)
+    controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.target.set(0, 0, 0);
+    controls.rotateSpeed = 0.1;
+    controls.zoomSpeed = 0.1;
+    controls.minDistance = 2.017;
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.2;
+    controls.update();
+
+    // EVENT LISTENER
+    window.addEventListener('resize', onWindowResize, false);
+    document.addEventListener('mousemove', onDocumentMouseMove, false);
+
+    // TEXTURE LOADER
+    var textureLoader = new THREE.TextureLoader();
+
+    // SCENE
+    scene = new THREE.Scene();
+    scene_atm = new THREE.Scene();
+    //scene.fog=new THREE.Fog( 0xffffff, 0.015, 100 );
+
+    // LIGHT SOURCES
+    /*hemiLight = new THREE.HemisphereLight( 0xddeeff, 0x0f0e0d, 1000.0);
+    scene.add(hemiLight);
+
+    var dirLight = new THREE.DirectionalLight(0xffffff, 1);
+    dirLight.position.set(-2, -2, -0.5);
+    scene.add(dirLight);
+
+    var bulbGeometry = new THREE.SphereGeometry(0.02, 32, 32);
+    var bulbLight = new THREE.PointLight( 0xffee88, 1, 100, 0 );
+    var bulbMat = new THREE.MeshStandardMaterial({ "emissive" : "rgb(255,255,80)",
+            "emissiveIntensity": 100,
+            "color": "rgb(0,0,0)"
+     });
+    bulbLight.add(new THREE.Mesh(bulbGeometry, bulbMat));
+    bulbLight.position.set( 0,3,0 );
+    bulbLight.castShadow = true;
+    scene.add( bulbLight );*/
+    
+    // EARTH
+    function createSectorGeom(i,j) {
+        var dphi = 2*Math.PI/4.0;
+        var dtheta = Math.PI/2.0;
+        var eps = 0.0002;
+        var geom = new THREE.SphereGeometry(2, 100, 100, i*dphi-eps, dphi+2*eps, j*dtheta-eps, dtheta+2*eps);
+        return geom;
+    }
+                
+    function createSectorMat(i,j) {
+        var jpgfile_bump = 'media/sectors/sec_4096_' + i + '_' + j + '.jpg'
+        var jpgfile_0 = jpgfile_bump;
+        var jpgfile_1 = 'media/sectors-day/sec_4096_' + i + '_' + j + '.jpg'
+        var shader = {
+          uniforms: {
+            'texture_0': { type: 't', value: 0, texture: null },
+            'texture_1': { type: 't', value: 0, texture: null },
+            'bump': { type: 't', value: 0, texture: null }
+          },
+          vertexShader: [
+            'varying vec3 vNormal;',
+            'varying vec2 vUv;',
+            'uniform sampler2D bump;',
+            'uniform sampler2D texture_0;',
+            'uniform sampler2D texture_1;',
+            'void main() {',
+              'vec3 dh = texture2D( bump, uv ).xyz;',
+              'vec3 newpos = position + 0.1*log(1.0+dot(dh, vec3(1.0,0,0)))*normal;',
+              'gl_Position = projectionMatrix * modelViewMatrix * vec4( newpos, 1.0 );',
+              'vNormal = normalize( normalMatrix * normal );',
+              'vUv = uv;',          
+            '}'
+          ].join('\n'),
+          fragmentShader: [
+            'uniform sampler2D texture_0;',
+            'uniform sampler2D texture_1;',
+            'varying vec3 vNormal;',
+            'varying vec2 vUv;',
+            'void main() {',
+              'vec3 diffuse = 0.95*texture2D( texture_0, vUv ).xyz + 0.05*texture2D( texture_1, vUv ).xyz;',
+              'float intensity = 1.05 - dot( vNormal, vec3( 0.0, 0.0, 1.0 ) );',
+              'vec3 atmosphere = vec3( 1.0, 1.0, 1.0 ) * pow( intensity, 3.0 );',
+              'gl_FragColor = vec4( diffuse + atmosphere, 1.0 );',
+            '}'
+          ].join('\n')
+        };
+        textureLoader.load(jpgfile_bump, function(map) {
+            map.magFilter = THREE.NearestFilter;
+            shader.uniforms.bump.value = map;
+            shader.uniforms.texture_0.value = map;
+        });
+        textureLoader.load(jpgfile_1, function(map) {
+            map.magFilter = THREE.NearestFilter;
+            shader.uniforms.texture_1.value = map;
+        });
+        var mat = new THREE.ShaderMaterial({
+            uniforms: {
+                color: {type: 'f', value: 1.0},
+                texture_0: shader.uniforms.texture_0,
+                texture_1: shader.uniforms.texture_1,
+                bump: shader.uniforms.bump
+            },
+            vertexShader: shader.vertexShader,
+            fragmentShader: shader.fragmentShader
+        });
+        return mat;
+    }
+    
+    function createSectorSphere(geomfct, matfct) {
+        var merge_mat = new THREE.MeshFaceMaterial([
+            matfct(0,0),
+            matfct(0,1),
+            matfct(1,0),
+            matfct(1,1),
+            matfct(2,0),
+            matfct(2,1),
+            matfct(3,0),
+            matfct(3,1)
+        ]);
+        var merge_geom = new THREE.Geometry();
+        var secs = [
+            geomfct(0,0),
+            geomfct(0,1),
+            geomfct(1,0),
+            geomfct(1,1),
+            geomfct(2,0),
+            geomfct(2,1),
+            geomfct(3,0),
+            geomfct(3,1)        
+        ];
+        for (var i=0; i<secs.length; ++i) {
+            merge_geom.merge(secs[i], secs[i].matrix, i);
+        }                
+        var mesh = new THREE.Mesh(merge_geom, merge_mat);
+        scene.add(mesh);
+        return mesh;
+    }
+    
+    var earth_mesh = createSectorSphere(
+        createSectorGeom, 
+        createSectorMat);         
+                
+    // ATMOSPHERE
+    function createShaderSphere(geomfct, shader) {
+        var geom_atm = new THREE.SphereGeometry(2.4, 50, 50);
+        var shader_atm;
+        if (shader != null) shader_atm = shader;
+        else shader_atm = {
+            uniforms: {},
+            vertexShader: [
+                'varying vec3 vNormal;',
+                'varying vec3 vPosition;',
+                'void main() {',
+                  'vPosition = position;',
+                  'vNormal = normalize( normalMatrix * normal );',
+                  'gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );',
+                '}'
+            ].join('\n'),
+            fragmentShader: [
+                'varying vec3 vNormal;',
+                'varying vec3 vPosition;',
+                'void main() {',
+                  'float intensity = pow( -0.05 - dot( vNormal, vec3( 0, 0, 1.0 ) ), 12.0 );',
+                  'gl_FragColor = vec4( 1.0,1.0,1.0,1.0 ) * intensity;',
+                '}'
+            ].join('\n')
+        };
+        var shader_atm_mat = new THREE.ShaderMaterial({
+            uniforms: shader_atm.uniforms,
+            vertexShader: shader_atm.vertexShader,
+            fragmentShader: shader_atm.fragmentShader
+        })
+        var atm_shaded = new THREE.Mesh(geom_atm, shader_atm_mat);
+        //atm_shaded.scale.x = atm_shaded.scale.y = atm_shaded.scale.z = 1.1;
+        //atm_shaded.flipSided = true;
+        atm_shaded.matrixAutoUpdate = true;
+        atm_shaded.updateMatrix();
+        scene_atm.add(atm_shaded); 
+        return scene_atm;
+    }
+    var earth_atm_mesh = createShaderSphere(
+        function() { return new THREE.SphereGeometry(2.4, 50, 50); }, 
+        null);
+                
+                
+    // GPS DATA
+    function setupLocations(data, config) {
+        var buffgeom = new THREE.BufferGeometry();
+        var n_pts = data.locations.length;
+        var pos_array = new Float32Array(n_pts*3);
+        var t_array = new Float32Array(n_pts);
+        for (var i=0;i<n_pts;i++) {
+            var d = data.locations[i];
+            // Time
+            t_array[i] = d.t;
+            // Position
+            var x = d.x*1e-7;
+            var y = d.y*1e-7;
+            var phi = x/180.0*Math.PI;
+            if (phi < 0) phi = phi + 2*Math.PI;
+            phi = phi + 90.0/180.0*Math.PI;
+            var theta = -1*(y / 180.0*Math.PI) + Math.PI*0.5;           
+            var zsph = Math.sin(theta)*Math.cos(phi);
+            var xsph = Math.sin(theta)*Math.sin(phi);
+            var ysph = Math.cos(theta);
+            pos_array[i*3+0] = xsph*2.015;
+            pos_array[i*3+1] = ysph*2.015;
+            pos_array[i*3+2] = zsph*2.015;
+        }
+        // Add attributes
+        buffgeom.addAttribute('t', new THREE.BufferAttribute(t_array, 1));
+        buffgeom.addAttribute('position', new THREE.BufferAttribute(pos_array, 3));
+
+        //var dotMaterial = new THREE.PointsMaterial(config);
+        var shader = {
+          uniforms: {
+            'color_0': { value: new THREE.Color(config.color_0) },
+            'color_1': { value: new THREE.Color(config.color_1) },
+            'phase': { type:'f', value: 0.0 }
+          },
+          vertexShader: [
+            'attribute float t;',
+            'varying float c;',
+            'varying float a;',
+            'uniform float phase;',
+            'void main() {',
+              'c = 0.5*(1.0 + cos(t/24.0*2.0*3.141592));',
+              'float dphi = sin(3.141592*(t/24.0-phase));',
+              'a = exp( -0.5*100.0*pow(dphi,4.0) );',
+              'gl_PointSize = 0.5+1.0*a;',
+              'gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );',
+            '}'
+          ].join('\n'),
+          fragmentShader: [
+            'varying float c;',
+            'varying float a;',
+            'uniform vec3 color_0;',
+            'uniform vec3 color_1;',
+            'void main() {',
+              'gl_FragColor = a*vec4( (1.0-c)*color_0, 1.0) + a*vec4( c*color_1, 1.0);',
+            '}'
+          ].join('\n')
+        };
+        var mat = new THREE.ShaderMaterial({
+            uniforms: shader.uniforms,
+            vertexShader: shader.vertexShader,
+            fragmentShader: shader.fragmentShader
+        });
+
+        meshdict[config.tag] = new THREE.Points(buffgeom, mat);
+        scene.add(meshdict[config.tag]);
+    }
+    
+    function requestLoadData(filename, callfct, args, outfct) {
+        console.log("Issue data request: ", filename);
+        var xhr = new XMLHttpRequest();
+        xhr.open('GET', filename, true);
+        xhr.onreadystatechange = function(e) {
+            if (xhr.readyState === 4) {
+                if (xhr.status === 200) {
+                    var data = JSON.parse(xhr.responseText);
+                    window.data = data;
+                    console.log("Processing data from ", filename);
+                    returnObj = callfct(data, args);
+                    if (outfct) outfct();
+                }
+            }
+        };
+        console.log("Finish data request: ", filename);
+        xhr.send(null);        
+    }
+                
+    requestLoadData(
+        'data/cook_journey_1772-1775.json', 
+        setupLocations,
+        { tag: 'gps-cook', color_0: 0x0066ff, color_1: 0xffffff },
+        null);
+    requestLoadData(
+        'data/forster_journey_1772-1775.json', 
+        setupLocations,
+        { tag: 'gps-forster', color_0: 0xff0066, color_1: 0xffffff },
+        function() { 
+            container.appendChild(renderer.domElement);
+            timediv.style.visibility = 'visible';
+        });
+
+                    
+} /* function init() */
+
+function onWindowResize() {
+    camera.aspect = container.offsetWidth / container.offsetHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize( container.offsetWidth, container.offsetHeight );
+}
+
+function onDocumentMouseMove(event) {
+    mouse.x = ( event.clientX / container.offsetWidth ) * 2 - 1;
+    mouse.y = - ( event.clientY / container.offsetHeight ) * 2 + 1;
+
+}
+
+function animate() {
+    requestAnimationFrame(animate);
+    render();
+}
+
+var t = 0.0;
+var T = 10.0;
+function render() {
+    // Time tracking
+    var time = Date.now();    
+    var ts = clock.getDelta();
+    t += ts;
+
+    // Camera & controls
+    controls.update();
+    var p = camera.position;
+    controls.zoomSpeed = 0.001+1*(1.0+Math.tanh( Math.pow( p.dot(p)-2.5*2.5 , 1.0) ))*0.5;
+    controls.rotateSpeed = 0.002+0.3*(1.0+Math.tanh( Math.pow( p.dot(p)-2.7*2.7 , 1.0) ))*0.5;
+
+    var hms = (t % T)/T*24.0;
+    var h = parseInt(hms);
+    timediv.innerHTML = 'UTC ' + h +':00';
+    // Update scene
+    if (meshdict['gps-cook']) {
+        meshdict['gps-cook'].material.uniforms.phase.value = (t % T) / T;
+        //meshdict['gps-lima'].material.uniforms.phase.needsUpdate = true;
+        //meshdict['gps-lima'].geometry.attributes.position.needsUpdate = true;
+        //meshdict['gps-lima'].geometry.verticesNeedUpdate = true;
+    }
+    if (meshdict['gps-forster']) {
+        meshdict['gps-forster'].material.uniforms.phase.value = (t % T) / T;
+    }
+
+    // Rendering
+    renderer.clear();
+    renderer.render(scene_atm, camera);
+    renderer.clearDepth();
+    renderer.render(scene, camera);
+}
+
+</script>
+        
+</html>

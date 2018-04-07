@@ -1,0 +1,48 @@
+html {
+    height: 100%;
+}
+
+body {
+    background-color: #000;
+    background: #000000 url(../../../libs/media/loading.gif) center center no-repeat;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    height: 100%;
+}
+
+#container {
+    position: absolute;
+    background-color: #000;
+    background: #000000 url(../../../libs/media/loading.gif) center center no-repeat;
+    background-size: 40px 40px;
+    background-repeat: no-repeat;
+    height: 100%;
+    width: 100%;
+    margin: 0%;
+}
+
+#timediv {
+    font: 16px Lato;  
+    position: absolute;
+    top: 10px; 
+    right: 10px;
+    width: 100px;
+    /*height: 10%;*/
+    /*background-color: rgba(255,255,255,0.0);*/
+    color: #ddd;
+    padding: 5px;
+    font-family: Monospace;
+    font-size: 13px;
+    /*text-align: center;*/
+}
+
+a {
+    color: #ff0080;
+    text-decoration: none;
+}
+
+a:hover {
+    color: #0080ff;
+}
+
